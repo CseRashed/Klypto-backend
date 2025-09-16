@@ -36,6 +36,7 @@ async function run() {
     const userCollection = client.db('usersDB').collection('users');
     const cartCollection = client.db('cartDb').collection('carts');
     const messageCollection = client.db('chatDB').collection('messages');
+    const reviewCollection =client.db('reviewDB').collection('reviews')
 
     // =========================
     // ✅ Products Routes
@@ -169,6 +170,79 @@ async function run() {
       const result = await cartCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
+
+// =========================
+// ✅ Review Routes
+// =========================
+// const ObjectId = require('mongodb').ObjectId;
+
+// Get all reviews (optionally by product)
+app.get('/reviews', async (req, res) => {
+  const { productId } = req.query;
+
+  try {
+    const filter = productId ? { productId } : {};
+    const reviews = await reviewCollection.find(filter).sort({ createdAt: -1 }).toArray();
+    res.send(reviews);
+  } catch (err) {
+    res.status(500).send({ message: 'Failed to fetch reviews', error: err.message });
+  }
+});
+
+// Check if user already reviewed a product
+app.get('/reviews/check', async (req, res) => {
+  const { productId, email } = req.query;
+
+  if (!productId || !email) {
+    return res.status(400).send({ message: "ProductId and email are required" });
+  }
+
+  try {
+    const review = await reviewCollection.findOne({ productId, reviewerEmail: email });
+    res.send({ reviewed: !!review });
+  } catch (err) {
+    res.status(500).send({ message: 'Failed to check review', error: err.message });
+  }
+});
+
+// Add a new review
+app.post('/reviews', async (req, res) => {
+  const { productId, reviewerName, reviewerEmail, reviewerImage, rating, comment } = req.body;
+
+  // Validation
+  if (!productId || !reviewerName || !reviewerEmail || !rating || !comment) {
+    return res.status(400).send({ message: "All fields are required" });
+  }
+
+  if (rating < 1 || rating > 5) {
+    return res.status(400).send({ message: "Rating must be between 1 and 5" });
+  }
+
+  try {
+    // Check if user already reviewed this product
+    const existing = await reviewCollection.findOne({ productId, reviewerEmail });
+    if (existing) {
+      return res.status(409).send({ message: 'You have already reviewed this product' });
+    }
+
+    const review = {
+      productId,
+      reviewerName,
+      reviewerEmail,
+      reviewerImage: reviewerImage || '',
+      rating,
+      comment,
+      createdAt: new Date()
+    };
+
+    const result = await reviewCollection.insertOne(review);
+    res.send({ insertedId: result.insertedId, message: "Review added successfully" });
+  } catch (err) {
+    res.status(500).send({ message: 'Failed to add review', error: err.message });
+  }
+});
+
+
 
     // =========================
     // ✅ Message Routes (Optional)
