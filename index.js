@@ -38,6 +38,7 @@ async function run() {
     const messageCollection = client.db('chatDB').collection('messages');
     const reviewCollection =client.db('reviewDB').collection('reviews');
     const ordersCollection =client.db('orderDB').collection('orders');
+    const categoryCollection =client.db('categoryDB').collection('categories');
 
 
     // =========================
@@ -245,34 +246,39 @@ app.post('/reviews', async (req, res) => {
 });
 
 
+const { ObjectId } = require("mongodb");
+
 // =========================
-// ✅ Orders Route
+// ✅ Orders Routes
 // =========================
+
+// 1️⃣ Place a new order
 app.post('/orders', async (req, res) => {
   try {
     const orderData = req.body;
 
-    // Validation
     if (!orderData.userEmail || !orderData.cart || orderData.cart.length === 0) {
       return res.status(400).send({ message: "Invalid order data" });
     }
 
-    // 1️⃣ Save order
     const orderDoc = {
       userEmail: orderData.userEmail,
       cart: orderData.cart,
       subtotal: orderData.subtotal,
-      shippingCost: orderData.shippingCost,
+      delivery: orderData.shippingCost || 0,
       total: orderData.total,
       billingInfo: orderData.billingInfo,
       shippingInfo: orderData.shippingInfo,
       paymentInfo: orderData.paymentInfo,
+      status: "Pending",
+      trackingSteps: ["Order Placed", "Packed", "Shipped", "Delivered"],
+      currentStep: 1,
+      seller: orderData.cart[0]?.seller || "Unknown",
       createdAt: new Date(),
     };
 
     const result = await ordersCollection.insertOne(orderDoc);
 
-    // 2️⃣ Update stock for each product
     for (const item of orderData.cart) {
       const productId = new ObjectId(item._id);
       await productCollection.updateOne(
@@ -281,19 +287,67 @@ app.post('/orders', async (req, res) => {
       );
     }
 
-    // 3️⃣ Empty user's cart
     await cartCollection.deleteMany({ email: orderData.userEmail });
 
     res.status(201).send({
       message: "Order placed successfully",
       orderId: result.insertedId,
     });
-
   } catch (err) {
     console.error("❌ Error creating order:", err);
     res.status(500).send({ message: "Server error", error: err.message });
   }
 });
+
+// 2️⃣ Get orders (all or user-specific)
+app.get('/orders', async (req, res) => {
+  try {
+    const userEmail = req.query.email; // ?email=user@example.com
+    const query = userEmail ? { userEmail } : {}; // filter if email exists
+
+    const orders = await ordersCollection
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.status(200).send(orders);
+  } catch (err) {
+    console.error("❌ Error fetching orders:", err);
+    res.status(500).send({ message: "Server error", error: err.message });
+  }
+});
+
+// product category routes
+app.get('/categories',async(req,res)=>{
+  const result =await categoryCollection.find().toArray()
+  res.send(result)
+})
+
+
+app.post('/categories', async(req,res)=>{
+  const category=req.body;
+  const result= await categoryCollection.insertOne(category)
+  res.send(result)
+})
+
+// Delete a category by ID
+app.delete('/categories/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const deletedCategory = await categoryCollection.deleteOne({ _id: new ObjectId(id) });
+
+    if (deletedCategory.deletedCount === 0) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+
+    res.status(200).json({ message: 'Category deleted successfully', deletedCategory });
+  } catch (error) {
+    console.error('Error deleting category:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 
 
 
