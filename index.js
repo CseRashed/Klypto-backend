@@ -36,7 +36,9 @@ async function run() {
     const userCollection = client.db('usersDB').collection('users');
     const cartCollection = client.db('cartDb').collection('carts');
     const messageCollection = client.db('chatDB').collection('messages');
-    const reviewCollection =client.db('reviewDB').collection('reviews')
+    const reviewCollection =client.db('reviewDB').collection('reviews');
+    const ordersCollection =client.db('orderDB').collection('orders');
+
 
     // =========================
     // ✅ Products Routes
@@ -239,6 +241,57 @@ app.post('/reviews', async (req, res) => {
     res.send({ insertedId: result.insertedId, message: "Review added successfully" });
   } catch (err) {
     res.status(500).send({ message: 'Failed to add review', error: err.message });
+  }
+});
+
+
+// =========================
+// ✅ Orders Route
+// =========================
+app.post('/orders', async (req, res) => {
+  try {
+    const orderData = req.body;
+
+    // Validation
+    if (!orderData.userEmail || !orderData.cart || orderData.cart.length === 0) {
+      return res.status(400).send({ message: "Invalid order data" });
+    }
+
+    // 1️⃣ Save order
+    const orderDoc = {
+      userEmail: orderData.userEmail,
+      cart: orderData.cart,
+      subtotal: orderData.subtotal,
+      shippingCost: orderData.shippingCost,
+      total: orderData.total,
+      billingInfo: orderData.billingInfo,
+      shippingInfo: orderData.shippingInfo,
+      paymentInfo: orderData.paymentInfo,
+      createdAt: new Date(),
+    };
+
+    const result = await ordersCollection.insertOne(orderDoc);
+
+    // 2️⃣ Update stock for each product
+    for (const item of orderData.cart) {
+      const productId = new ObjectId(item._id);
+      await productCollection.updateOne(
+        { _id: productId },
+        { $inc: { stock: -(item.quantity || 1) } }
+      );
+    }
+
+    // 3️⃣ Empty user's cart
+    await cartCollection.deleteMany({ email: orderData.userEmail });
+
+    res.status(201).send({
+      message: "Order placed successfully",
+      orderId: result.insertedId,
+    });
+
+  } catch (err) {
+    console.error("❌ Error creating order:", err);
+    res.status(500).send({ message: "Server error", error: err.message });
   }
 });
 
